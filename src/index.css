@@ -1,0 +1,13 @@
+/* Base page styles. The rich "illuminated chronicle" theme (fonts, palette,
+   component styles) is injected by GodSim via its own <style> block, so this
+   stays intentionally minimal. */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: #0e0b07;
+  color: #e9dcc3;
+  font-family: "EB Garamond", Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+}
