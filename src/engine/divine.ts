@@ -11,9 +11,10 @@ import type { RNG } from "./rng";
 import { chance, clamp, pick } from "./rng";
 import type { Person, VowKind, World } from "./types";
 import {
-  adjStanding, ageOf, artifactsHeldBy, bumpRel, deed, departWorld, deriveDesire, ev,
-  faithById, houseLiving, houseOf, housesAlive, kill, livingFaiths, livingPeople,
-  monarch, pName, premierArtifact, promoteCommoner, regionOf, renown,
+  adjStanding, ageOf, artifactsHeldBy, bumpPhase, bumpRel, deed, departWorld,
+  deriveDesire, ev, faithById, houseLiving, houseOf, housesAlive, kill, livingFaiths,
+  livingPeople, monarch, pName, premierArtifact, promoteCommoner, regionOf, regionsOf,
+  renown,
 } from "./world";
 import { foundFaith } from "./systems/faith";
 import { speakProphecy as prophecyOf } from "./systems/memory";
@@ -34,6 +35,7 @@ const GRACIOUS = new Set(["bless", "blessLand", "sendBounty", "imposePeace", "ha
 export function makeDivine(w: World, rng: RNG) {
   /** every act passes through here: journal, vow, creed-imprint */
   function act(op: string, args: unknown[], flavor: string): boolean {
+    bumpPhase(w); // divine acts change the world — never let might caches go stale
     w.journal.push({ era: w.era, op, args });
     if (w.deity.lastActEra !== w.era) { w.deity.actsThisEra = 0; }
     w.deity.actsThisEra++; w.deity.lastActEra = w.era;
@@ -68,20 +70,24 @@ export function makeDivine(w: World, rng: RNG) {
     /* ── the original levers (signatures unchanged) ── */
     nameChosen(personId: string) {
       const p = w.people[personId]; if (!p?.alive) return;
-      const empire = w.empireHouseId ?? housesAlive(w)
-        .sort((a, b) => (b.holdings + (w.crown.houseId === b.id ? 2 : 0)) - (a.holdings + (w.crown.houseId === a.id ? 2 : 0)) || (a.id < b.id ? -1 : 1))[0]?.id ?? null;
-      if (!w.empireHouseId && empire) w.empireHouseId = empire;
-      w.chosen = { personId, outcome: null };
+      // the charge is laid against the mightiest power that is NOT the chosen's own blood
+      const target = (w.empireHouseId && w.empireHouseId !== p.houseId ? w.empireHouseId : null)
+        ?? housesAlive(w).filter((h) => h.id !== p.houseId)
+          .sort((a, b) => (b.holdings + (w.crown.houseId === b.id ? 2 : 0)) - (a.holdings + (w.crown.houseId === a.id ? 2 : 0)) || (a.id < b.id ? -1 : 1))[0]?.id ?? null;
+      const tHouse = houseOf(w, target);
+      w.chosen = {
+        personId, outcome: null, targetId: target,
+        baselineHoldings: target ? regionsOf(w, target).length : 0,
+      };
       p.chosen = true;
       p.prowess = clamp(p.prowess + 0.4, 0, 1); p.guile = clamp(p.guile + 0.3, 0, 1);
       p.drives = { legacy: 0.4, status: 0.35, faith: 0.25 };
       p.desire = "to do what the god has charged";
-      const emp = houseOf(w, empire);
       act("nameChosen", [personId], `named ${p.name} the chosen`);
       deed(w, p, "was named the god's Chosen", 0.2);
-      ev(w, "divine", `— THE DIVINE HAND — The god appears to ${pName(w, p)} and names them the one foretold to bring down ${emp ? "the " + emp.name + " Empire" : "the mighty"}.`,
+      ev(w, "divine", `— THE DIVINE HAND — The god appears to ${pName(w, p)} and names them the one foretold to bring down ${tHouse ? (w.empireHouseId === target ? "the " + tHouse.name + " Empire" : "the might of House " + tHouse.name) : "the mighty"}.`,
         { importance: 3, actors: [p.id], divine: true, motive: "faith" });
-      if (empire) prophecyOf(w, rng, "divine", { subjectSpec: { personId }, predicate: { kind: "cast-down-house", targetId: empire } });
+      if (target) prophecyOf(w, rng, "divine", { subjectSpec: { personId }, predicate: { kind: "cast-down-house", targetId: target } });
     },
     bestowSword(personId: string) {
       const a = premierArtifact(w); if (a) D.bestowArtifact(a.id, personId);
@@ -291,7 +297,7 @@ export function makeDivine(w: World, rng: RNG) {
         id: "a" + w.artifacts.length, name, kind, holderId: null, state: "lost",
         lostInRegionId: region.id, legend: 3, will: 0.5 + rng() * 0.4,
         wants: pick(rng, ["a worthy hand", "to be sung of in every hall", "to return to the god who loosed it"]),
-        attune: pick(rng, w.houses.map((h) => h.hair)), power: pick(rng, powers), custody: [],
+        attune: pick(rng, w.houses.map((h) => h.hair)), power: pick(rng, powers), custody: [], cultName: null,
       });
       act("forgeArtifact", [], `forged ${name}`);
       ev(w, "divine", `— THE DIVINE HAND — Shepherds near ${region.name} report a night without stars and a sound like a hammer. Somewhere in those hills, ${name} now waits to be found.`,
@@ -325,7 +331,7 @@ export function makeDivine(w: World, rng: RNG) {
       w.deity.incarnationId = p.id;
       w.deity.incarnationBackstory = backstory ?? `A stranger of House ${h.name} with no childhood anyone remembers.`;
       w.deity.humbled = false;
-      act("incarnate", [houseId ?? null, name ?? null], `descended as ${p.name}`);
+      act("incarnate", [houseId ?? null, name ?? null, backstory ?? null], `descended as ${p.name}`);
       ev(w, "divine", `— THE DESCENT — A stranger arrives at ${h.seat} with road-dust that smells of rain. The chronicle will know ${p.name} of House ${h.name}; heaven, for a while, stands empty.`,
         { importance: 3, actors: [p.id], divine: true });
     },

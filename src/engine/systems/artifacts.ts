@@ -108,28 +108,44 @@ export const artifacts: System = {
           { importance: 1, actors: [p.id], motive: "legacy" });
       }
     }
+    w.intents.quests.length = 0; // consumed
 
-    /* legends gather worship: a great relic breeds a cult */
+    /* legends gather worship: a great relic breeds a cult (once) */
     for (const a of w.artifacts) {
-      if (a.state === "destroyed") continue;
-      if (a.legend > 14 && livingFaiths(w).length < 5 && !w.faiths.some((f) => f.focus === "relic" && f.name.includes(a.name.replace(/^the /, "").split(" of ")[0])) && chance(rng, 0.2)) {
+      if (a.state === "destroyed" || a.cultName) continue;
+      if (a.legend > 14 && livingFaiths(w).length < 5 && chance(rng, 0.2)) {
         const devotee = livingPeople(w).filter((p) => p.zeal > 0.6).sort((x, y) => y.zeal - x.zeal || (x.id < y.id ? -1 : 1))[0] ?? null;
-        const f = foundFaith(w, rng, "relic", devotee?.id ?? null, { homeRegionId: a.lostInRegionId });
+        const f = foundFaith(w, rng, "relic", devotee?.id ?? null, { homeRegionId: a.lostInRegionId, relicName: a.name });
+        a.cultName = f.name;
         ev(w, "founding-faith", `The legend of ${a.name} outgrows the halls that tell it: ${f.name} forms to worship the relic itself.`,
           { importance: 3, motive: "faith" });
       }
     }
 
-    /* a hoard draws covetous eyes */
+    /* a hoard draws covetous eyes — and, soon enough, knives */
     for (const p of livingPeople(w)) {
       const held = artifactsHeldBy(w, p.id);
       if (held.length >= 2 && chance(rng, 0.3)) {
         const rivals = livingPeople(w).filter((x) => x.id !== p.id && (x.drives.status ?? 0) > 0.4 && x.guile > 0.5)
           .sort((x, y) => y.guile - x.guile || (x.id < y.id ? -1 : 1));
-        if (rivals.length) {
-          bumpRel(w, rivals[0].id, p.id, { rivalry: 0.3 }, `covets the hoard of relics`);
+        const rival = rivals[0];
+        if (!rival) continue;
+        const alreadyCovets = w.rels.some((r) => r.from === rival.id && r.to === p.id && r.rivalry >= 0.25);
+        if (alreadyCovets) {
+          // envy ripens into a plot
+          if (!w.plots.some((k) => k.plotterId === rival.id && k.targetId === p.id) && chance(rng, 0.4)) {
+            w.plots.push({
+              id: "k" + (w.seq.plot = (w.seq.plot || 0) + 1),
+              plotterId: rival.id, targetId: p.id, kind: "assassination",
+              progress: 0.3, motive: "wealth", bornEra: w.era,
+            });
+            ev(w, "rumor", `${rival.name} has stopped admiring ${pName(w, p)}'s relics aloud. The silence is worse.`,
+              { importance: 1, actors: [rival.id, p.id], motive: "wealth" });
+          }
+        } else {
+          bumpRel(w, rival.id, p.id, { rivalry: 0.3 }, `covets the hoard of relics`);
           ev(w, "rumor", `${pName(w, p)} holds ${held.map((x) => x.name).join(" and ")} — and covetous eyes follow them through every hall.`,
-            { importance: 1, actors: [p.id, rivals[0].id] });
+            { importance: 1, actors: [p.id, rival.id] });
         }
       }
     }

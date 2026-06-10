@@ -21,8 +21,25 @@ export const adversary: System = {
 
     /* ── THE RIVAL DEITY: a patient, spiteful intelligence ── */
     if (A.kind === "rival-deity") {
+      // a rival can be starved out: its champion in the ground, its cult broken or starving
+      const rivalChamp = A.championId ? w.people[A.championId] : null;
+      const rivalCult = A.cultName ? w.faiths.find((f) => f.name === A.cultName) : null;
+      const champGone = A.championId !== null && !rivalChamp?.alive;
+      const cultBroken = A.cultName !== null && (!!rivalCult?.dissolvedEra || (rivalCult?.vitality ?? 1) < 0.22);
+      if (w.era >= 12 && champGone && cultBroken && chance(rng, 0.4)) {
+        A.defeated = true;
+        ev(w, "adversary", `Its champion in the ground and its choir scattered, ${A.name} finds no door left open in the world. Starved of fear and worship, it recedes into whatever dark it came from.`,
+          { importance: 3, divine: true });
+        return;
+      }
       if (!chance(rng, 0.55)) return;
-      const move = pick(rng, ["curse", "cult", "corrupt", "champion", "tempt"] as const);
+      // only moves that can actually land are considered
+      const moves: ("curse" | "cult" | "corrupt" | "champion" | "tempt")[] = ["curse"];
+      if (!A.cultName && livingFaiths(w).length < 5) moves.push("cult");
+      if (livingFaiths(w).some((x) => x.name !== A.cultName)) moves.push("corrupt");
+      if (!rivalChamp?.alive) moves.push("champion");
+      if (w.chosen && !w.chosen.outcome && w.people[w.chosen.personId]?.alive) moves.push("tempt");
+      const move = pick(rng, moves);
       switch (move) {
         case "curse": {
           const r = w.regions.slice().sort((a, b) => b.prosperity - a.prosperity || (a.id < b.id ? -1 : 1))[0];
@@ -113,25 +130,26 @@ export const adversary: System = {
       if (!slayer) return;
       if (!slayer.alive) {
         A.defeated = true;
-        for (const a of artifactsHeldBy(w, slayer.id)) {
+        const stillHeld = artifactsHeldBy(w, slayer.id);
+        for (const a of stillHeld) {
           a.holderId = null; a.state = "lost";
           a.lostInRegionId = pick(rng, w.regions).id;
         }
-        ev(w, "godslayer", `${slayer.name} is dead, and the relics scatter from dead hands. The climb to heaven ends in the mud, as such climbs do.`,
+        ev(w, "godslayer", stillHeld.length
+          ? `${slayer.name} is dead, and the relics scatter from dead hands. The climb to heaven ends in the mud, as such climbs do.`
+          : `${slayer.name} is dead, the gathered relics already passed to other hands. The climb to heaven ends in the mud, as such climbs do.`,
           { importance: 3, actors: [slayer.id] });
         return;
       }
 
-      A.power = artifactsHeldBy(w, slayer.id).length;
-
       // hunt relics: lost ones first, then take them from living hands
       const lost = w.artifacts.filter((a) => a.state === "lost").sort((a, b) => b.legend - a.legend || (a.id < b.id ? -1 : 1));
       const heldByOthers = w.artifacts.filter((a) => a.state === "held" && a.holderId !== slayer.id);
-      if (lost.length && chance(rng, 0.55)) {
+      if (lost.length && chance(rng, 0.7)) {
         const a = lost[0];
         a.holderId = slayer.id; a.state = "held"; a.legend += 1.5; a.lostInRegionId = null;
         a.custody.push({ holderId: slayer.id, era: w.era, how: "taken by the god-slayer" });
-        ev(w, "godslayer", `${slayer.name} walks out of the wilds carrying ${a.name}. That is ${A.power + 1} of the god's relics in one fist.`,
+        ev(w, "godslayer", `${slayer.name} walks out of the wilds carrying ${a.name}. That is ${artifactsHeldBy(w, slayer.id).length} of the god's relics in one fist.`,
           { importance: 3, actors: [slayer.id] });
       } else if (heldByOthers.length && chance(rng, 0.4)) {
         const a = heldByOthers.sort((x, y) => y.legend - x.legend || (x.id < y.id ? -1 : 1))[0];
@@ -162,6 +180,8 @@ export const adversary: System = {
         }
       }
 
+      A.power = artifactsHeldBy(w, slayer.id).length; // counted AFTER the hunt — the third relic sunders the same era
+
       // desecration: holy ground burned to starve heaven of worship
       if (chance(rng, 0.3)) {
         const holy = w.regions.find((r) => r.sacredTo && livingFaiths(w).some((f) => f.name === r.sacredTo));
@@ -191,11 +211,12 @@ export const adversary: System = {
       }
 
       // mortals push back: the realm's best may hunt the slayer
-      const hunter = livingPeople(w).filter((p) => p.id !== slayer.id && !p.avatar && (p.chosen || renown(w, p) > 1.1))
+      const hunter = livingPeople(w).filter((p) => p.id !== slayer.id && !p.avatar && (p.chosen || renown(w, p) > 1.05))
         .sort((a, b) => renown(w, b) - renown(w, a) || (a.id < b.id ? -1 : 1))[0];
-      if (hunter && A.power >= 1 && chance(rng, 0.3)) {
+      if (hunter && A.power >= 1 && chance(rng, 0.45)) {
         ev(w, "godslayer", `${pName(w, hunter)} rides out to end the god-slayer's climb.`, { importance: 2, actors: [hunter.id, slayer.id] });
-        if (hunter.prowess * (0.85 + rng() * 0.3) > slayer.prowess * (1 + A.power * 0.12)) {
+        // legend counts for something in a duel: renown and borne relics weigh in
+        if ((hunter.prowess + renown(w, hunter) * 0.25) * (0.85 + rng() * 0.3) > slayer.prowess * (1.05 + A.power * 0.12)) {
           kill(w, slayer, `slain in single combat by ${hunter.name}`);
           deed(w, hunter, `slew the god-slayer ${slayer.name}`, 0.3);
           bumpRel(w, hunter.id, slayer.id, { rivalry: 0 });

@@ -8,8 +8,8 @@ import { chance, clamp, pick, weightedPick } from "../rng";
 import type { Faith, Posture, System, World } from "../types";
 import { faithName, GOD_NAME } from "../names";
 import {
-  ageOf, deed, ev, houseLord, houseOf, housesAlive, livingFaiths, livingPeople,
-  monarch, premierArtifact, regionOf, regionsOf, renown, standing,
+  ageOf, deed, ev, houseLord, houseOf, housesAlive, inTruce, livingFaiths,
+  livingPeople, monarch, premierArtifact, regionOf, regionsOf, renown, standing,
 } from "../world";
 
 const TENETS = ["asceticism", "holy war", "charity", "mysticism", "ancestor-cult", "relic-veneration", "pilgrimage", "tolerance", "orthodoxy", "prophecy", "silence", "tithes"];
@@ -32,14 +32,14 @@ function rollPosture(rng: RNG, founder: { traits: string[] } | null): Posture {
 
 export function foundFaith(
   w: World, rng: RNG, focus: string, founderId: string | null,
-  opts: { parentId?: string | null; vitality?: number; posture?: Posture; homeRegionId?: string | null; causedBy?: string[] } = {},
+  opts: { parentId?: string | null; vitality?: number; posture?: Posture; homeRegionId?: string | null; causedBy?: string[]; relicName?: string | null } = {},
 ): Faith {
   const founder = founderId ? w.people[founderId] : null;
   const used = new Set(w.faiths.map((f) => f.name));
   const relic = premierArtifact(w);
   const f: Faith = {
     id: "f" + (w.seq.faith = (w.seq.faith || 0) + 1),
-    name: faithName(rng, focus, relic?.name ?? null, used),
+    name: faithName(rng, focus, opts.relicName ?? relic?.name ?? null, used),
     focus, posture: opts.posture ?? rollPosture(rng, founder),
     vitality: opts.vitality ?? 0.4,
     memoryOfGod: focus === "god" ? 0.9 : 0.6,
@@ -99,6 +99,7 @@ export const faith: System = {
       ev(w, "founding-faith", `${p.name} of House ${houseOf(w, p.houseId)?.name} comes out of the wilderness preaching ${FOCUS_CREED[intent.focus] ?? "a new way"} — ${f.name} is born.`,
         { importance: 3, actors: [p.id], motive: "faith" });
     }
+    w.intents.prophets.length = 0; // consumed
 
     /* conversions of the great */
     for (const c of w.intents.conversions) {
@@ -118,6 +119,7 @@ export const faith: System = {
           { importance: 1, actors: [p.id], motive: "faith" });
       }
     }
+    w.intents.conversions.length = 0; // consumed
 
     const lf = livingFaiths(w);
     if (!lf.length) return;
@@ -214,8 +216,12 @@ export const faith: System = {
           : f.focus === "god" ? pick(rng, ["reforged", "salvation"])
           : f.focus === "salvation" ? pick(rng, ["god", "doom"])
           : pick(rng, ["god", "salvation", "ancestor"]);
-        // the periphery walks away: regions of minority culture
-        const minority = myRegions.filter((r) => r.cultureKey !== (myRegions[0]?.cultureKey ?? ""));
+        // the periphery walks away: regions outside the faith's majority culture
+        const counts = new Map<string, number>();
+        for (const r of myRegions) counts.set(r.cultureKey, (counts.get(r.cultureKey) ?? 0) + 1);
+        let majority = myRegions[0]?.cultureKey ?? "", best = 0;
+        for (const [k, v] of counts) if (v > best) { best = v; majority = k; }
+        const minority = myRegions.filter((r) => r.cultureKey !== majority);
         const cradle = minority[0] ?? myRegions[myRegions.length - 1] ?? null;
         const child = foundFaith(w, rng, newFocus, null, { parentId: f.id, vitality: 0.4, homeRegionId: cradle?.id ?? null });
         for (const r of minority.slice(0, 3)) { r.faithName = child.name; r.devotion = 0.45; }
@@ -236,7 +242,9 @@ export const faith: System = {
           .find((r) => r.ownerId && r.faithName !== f.name);
         const target = lostHoly?.ownerId ?? rivals.find((x) => x.patronHouseId)?.patronHouseId ?? null;
         const patron = houseOf(w, f.patronHouseId);
-        if (target && patron && target !== patron.id && !patron.fallenEra) {
+        const alreadyFighting = target ? w.wars.some((x) => !x.over &&
+          ((x.attackerId === f.patronHouseId && x.defenderId === target) || (x.defenderId === f.patronHouseId && x.attackerId === target))) : false;
+        if (target && patron && target !== patron.id && !patron.fallenEra && !alreadyFighting && !inTruce(w, patron.id, target)) {
           const eid = ev(w, "crusade", `${f.name} proclaims a CRUSADE — ${lostHoly ? `to win back the holy ground of ${lostHoly.name}` : `to cleanse the heretics`}; the host of House ${patron.name} takes the cross.`,
             { importance: 3, houses: [patron.id, target], motive: "faith" });
           w.intents.wars.push({
@@ -299,6 +307,7 @@ export const faith: System = {
       if (sf?.posture === "benevolent") w.grace = clamp(w.grace + 0.15, 0, 1.5);
       for (const f of lf2) {
         if (f.id === w.crown.stateFaithId) continue;
+        if (f.vitality < 0.3) continue; // a creed too small to threaten anyone is beneath the Crown's notice
         const hostile = f.posture === "militant"
           || (f.patronHouseId && standing(w, f.patronHouseId, w.crown.houseId!) < -0.2)
           || (sf && f.focus !== sf.focus && f.zeal > 0.65);
@@ -317,8 +326,9 @@ export const faith: System = {
       }
     }
 
-    /* collapse */
+    /* collapse — but a newborn creed gets a generation to find its feet */
     for (const f of livingFaiths(w)) {
+      if (w.era - f.foundedEra < 2) continue;
       if (f.vitality < 0.12) {
         f.dissolvedEra = w.era;
         for (const r of w.regions) if (r.faithName === f.name) { if (r.devotion < 0.3) r.faithName = null; r.devotion = clamp(r.devotion - 0.2, 0, 1); }

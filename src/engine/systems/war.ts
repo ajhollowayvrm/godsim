@@ -89,6 +89,7 @@ export const war: System = {
         { importance: 3, houses: [att.id, def.id], actors: by ? [by.id] : [], motive: intent.aim.kind, causedBy: intent.causedBy });
       adjStanding(w, att.id, def.id, -0.5);
     }
+    w.intents.wars.length = 0; // consumed — intents pushed by later phases survive to next era
 
     /* campaigns: each living war fights a season */
     for (const x of w.wars) {
@@ -121,9 +122,10 @@ export const war: System = {
       if (front) {
         front.devastation = clamp(front.devastation + 0.25, 0, 1);
         front.population = Math.max(1, Math.round(front.population * 0.92 * 10) / 10);
-        const winner = attackerWins ? att : def, loserCmd = attackerWins ? cmdD : cmdA, winCmd = attackerWins ? cmdA : cmdD;
+        const winner = attackerWins ? att : def, loser = attackerWins ? def : att;
+        const loserCmd = attackerWins ? cmdD : cmdA, winCmd = attackerWins ? cmdA : cmdD;
         const relic = winCmd ? w.artifacts.find((a) => a.holderId === winCmd.id && a.power === "war" && a.state === "held") : null;
-        ev(w, "battle", `At ${front.name}, the host of House ${winner.name}${winCmd ? ` under ${winCmd.name}` : ""} carries the field${relic ? `, ${relic.name} red to the hilt` : ""}; the land is put to the torch.`,
+        ev(w, "battle", `At ${front.name}, the host of House ${winner.name}${winCmd ? ` under ${winCmd.name}` : ""} breaks House ${loser.name}'s line${relic ? `, ${relic.name} red to the hilt` : ""}; the land is put to the torch.`,
           { importance: 2, regionId: front.id, houses: [att.id, def.id], actors: [winCmd?.id ?? "", loserCmd?.id ?? ""].filter(Boolean) });
         if (relic) { relic.legend += 1.5; }
         if (winCmd) deed(w, winCmd, `carried the field at ${front.name}`, 0.08);
@@ -134,6 +136,16 @@ export const war: System = {
           kill(w, winCmd, `mortally wounded in victory at ${front.name} by ${(attackerWins ? def : att).id}`);
           ev(w, "death", `${pName(w, winCmd)} wins the day at ${front.name} and dies of it before the moon turns.`, { importance: 2, actors: [winCmd.id], regionId: front.id });
         }
+      }
+
+      /* a war with no one left to fight it simply ends */
+      if (!houseAlive(w, att.id) || !houseAlive(w, def.id)) {
+        x.over = true;
+        const gone = !houseAlive(w, att.id) ? att : def;
+        ev(w, "peace", `The war between House ${att.name} and House ${def.name} ends for the bleakest of reasons: House ${gone.name} has no one left to fight it.`,
+          { importance: 2, houses: [att.id, def.id] });
+        setTruce(w, att.id, def.id, w.era + 2);
+        continue;
       }
 
       /* does the war end? */
@@ -220,12 +232,16 @@ export const war: System = {
             }
             if (crippled && chance(rng, 0.7)) {
               const wrested = def.overlordId && def.overlordId !== att.id ? houseOf(w, def.overlordId) : null;
+              if (att.overlordId === def.id) att.overlordId = null; // the chain inverts, never loops
               def.overlordId = att.id; def.loyalty = 0.5;
               ev(w, "vassalage", wrested
                 ? `House ${def.name} is wrested from House ${wrested.name}'s grasp and bends the knee to House ${att.name}.`
                 : `House ${def.name} bends the knee as vassal to House ${att.name}.`,
                 { importance: 3, houses: [att.id, def.id] });
-              if (wrested) addGrudge(w, wrested.id, att.id, 0.6, `the theft of House ${def.name}'s fealty`);
+              if (wrested) {
+                addGrudge(w, wrested.id, att.id, 0.6, `the theft of House ${def.name}'s fealty`);
+                setTruce(w, wrested.id, def.id, w.era + 3); // the loser cannot immediately wrest them back
+              }
             }
             if (w.crown.houseId === att.id) w.crown.legitimacy = clamp(w.crown.legitimacy + 0.08, 0, 1);
           }
@@ -251,7 +267,7 @@ export const war: System = {
         ev(w, "peace", `Exhaustion ends the war between House ${att.name} and House ${def.name}; both sides bury their dead and call it honor.`,
           { importance: 2, houses: [att.id, def.id] });
       }
-      setTruce(w, att.id, def.id, w.era + (x.aim.kind === "raid" ? 1 : 2)); // swords need time to be reforged
+      setTruce(w, att.id, def.id, w.era + (x.aim.kind === "raid" ? 1 : 3)); // swords need time to be reforged
       w.grace = clamp(w.grace - 0.1, 0, 1.5); // war brings suffering to the land
     }
 

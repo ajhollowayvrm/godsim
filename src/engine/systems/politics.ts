@@ -45,6 +45,7 @@ export const politics: System = {
       ev(w, "marriage", `A marriage binds House ${houseOf(w, a.houseId)!.name} and House ${houseOf(w, b.houseId)!.name} — ${a.name} weds ${b.name}.`,
         { importance: big ? 2 : 1, actors: [a.id, b.id], houses: [a.houseId, b.houseId], motive: "love" });
     }
+    w.intents.proposals.length = 0; // consumed
 
     /* ── house lordships: succession by law, or extinction ── */
     for (const h of housesAlive(w)) {
@@ -75,7 +76,7 @@ export const politics: System = {
       ev(w, "extinction", `House ${h.name} fails — no heir remains to hold ${h.seat}. The line passes into legend.`,
         { importance: 3, houses: [h.id] });
       const rich = lands.filter((r) => r.prosperity > 0.5);
-      if (rich.length && w.houses.length < 16 && chance(rng, 0.65)) {
+      if (rich.length && w.houses.length < 16 && chance(rng, 0.45)) {
         // the stewards rise: a new house from the masses
         const seatR = rich.sort((a, b) => b.prosperity - a.prosperity || (a.id < b.id ? -1 : 1))[0];
         const cult = w.cultures.find((c) => c.key === seatR.cultureKey)!;
@@ -136,8 +137,9 @@ export const politics: System = {
         }
       }
     } else {
-      let m = monarch(w);
-      if (!m?.alive) {
+      const holderRaw = w.people[w.crown.holderId ?? ""] ?? null;
+      let m = holderRaw?.alive ? holderRaw : null;
+      if (!m) {
         const claimants = livingPeople(w).filter((p) => p.claims.includes(w.crown.houseId!) && !p.exiledFrom)
           .sort((a, b) => renown(w, b) - renown(w, a) || (a.id < b.id ? -1 : 1));
         const heir = claimants[0];
@@ -145,7 +147,7 @@ export const politics: System = {
           Object.assign(w.crown, { houseId: null, holderId: null, stateFaithId: null });
           ev(w, "interregnum", `The Crown falls vacant — no claimant remains. The realm enters interregnum.`, { importance: 3 });
         } else {
-          const death = m ? "" : " long-empty";
+          const death = holderRaw ? "" : " long-empty";
           w.crown.holderId = heir.id; w.crown.houseId = heir.houseId; w.crown.since = w.era;
           if (ageOf(heir, w.era) < 16) {
             const regent = adultsOf(w, heir.houseId).sort((a, b) => renown(w, b) - renown(w, a) || (a.id < b.id ? -1 : 1))[0];
@@ -204,6 +206,7 @@ export const politics: System = {
       const plotter = w.people[plot.plotterId], target = w.people[plot.targetId];
       if (!plotter?.alive || !target?.alive) { w.plots.splice(w.plots.indexOf(plot), 1); continue; }
       if (plotter.lastAction !== "scheme") plot.progress = clamp(plot.progress - 0.1, 0, 1);
+      if (plot.progress <= 0) { w.plots.splice(w.plots.indexOf(plot), 1); continue; } // abandoned schemes are forgotten
       if (plot.progress < 0.7) continue;
       // the knife is out
       const isMonarch = w.crown.holderId === target.id;
@@ -244,7 +247,7 @@ export const politics: System = {
 
     /* ── the High Captaincy: renown holds it, ambition takes it ── */
     const cap = w.offices["captain"];
-    const field = livingPeople(w).filter((p) => ageOf(p, w.era) >= 20 && !p.avatar)
+    const field = livingPeople(w).filter((p) => ageOf(p, w.era) >= 20 && !p.avatar && p.id !== w.adversary.championId)
       .sort((a, b) => renown(w, b) - renown(w, a) || (a.id < b.id ? -1 : 1));
     if (field.length) {
       const top = field[0]; const holder = w.people[cap.holderId ?? ""];
@@ -258,10 +261,17 @@ export const politics: System = {
       }
     }
 
-    /* ── empire bookkeeping ── */
+    /* ── empire bookkeeping: the rise AND the fall are chronicled ── */
     const prev = w.empireHouseId;
     const imperial = housesAlive(w).find((h) => vassalsOf(w, h.id).length >= 2 || (regionsOf(w, h.id).length >= 8 && w.crown.houseId === h.id));
     w.empireHouseId = imperial?.id ?? null;
+    if (prev && prev !== w.empireHouseId) {
+      const old = houseOf(w, prev);
+      ev(w, "empire", old?.fallenEra !== null && old?.fallenEra !== undefined
+        ? `The ${old.name} Empire dies with its house — its banners folded, its tribute roads gone to grass.`
+        : `The ${old?.name ?? "old"} Empire is no more; its vassals look to their own walls again, and no one sends tribute.`,
+        { importance: 3, houses: old ? [old.id] : [] });
+    }
     if (w.empireHouseId && w.empireHouseId !== prev)
       ev(w, "empire", `House ${houseOf(w, w.empireHouseId)!.name} now bestrides the land — men begin to speak of the ${houseOf(w, w.empireHouseId)!.name} Empire.`,
         { importance: 3, houses: [w.empireHouseId] });

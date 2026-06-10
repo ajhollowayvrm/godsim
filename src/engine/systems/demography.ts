@@ -69,10 +69,12 @@ export const demography: System = {
 
     /* deaths: age, plague, famine — tempered by grace */
     const mercy = clamp(w.grace, 0, 0.6);
+    const championId = w.adversary.kind !== "none" && !w.adversary.defeated ? w.adversary.championId : null;
     for (const p of livingPeople(w)) {
       if (p.avatar) continue;
       const a = ageOf(p, w.era);
       let base = a < 55 ? 0.04 : a < 75 ? 0.2 : a < 90 ? 0.55 : 0.95;
+      if (p.id === championId) base = Math.min(base * 0.05, 0.05); // the oath sustains them past any natural span — blades, not years, must end them
       const h = w.houses.find((x) => x.id === p.houseId);
       const lands = h ? regionsOf(w, h.id) : [];
       const tech = h ? cultureOf(w, h.culture).tech : {};

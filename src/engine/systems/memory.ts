@@ -26,9 +26,10 @@ export function speakProphecy(
     predicate.kind === "doom-of-faith" ? w.faiths.find((f) => f.id === predicate.targetId)?.name
     : predicate.kind === "find-artifact" ? w.artifacts.find((a) => a.id === predicate.targetId)?.name
     : "House " + (houseOf(w, predicate.targetId)?.name ?? "—");
+  const aAn = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
   const who = subjectSpec.personId ? w.people[subjectSpec.personId]?.name
     : subjectSpec.houseId ? `a child of House ${houseOf(w, subjectSpec.houseId)?.name}`
-    : `a ${subjectSpec.hair}-haired child not yet grown`;
+    : `${aAn(subjectSpec.hair ?? "child")} ${subjectSpec.hair}-haired child not yet grown`;
   const verb = predicate.kind === "take-crown" ? "wear the crown"
     : predicate.kind === "find-artifact" ? `raise up ${targetName}`
     : predicate.kind === "doom-of-faith" ? `see ${targetName} fall silent`
@@ -149,43 +150,67 @@ export const memory: System = {
           break;
         }
       }
-      if (p.status === "open" && subject && !subject.alive) { p.status = "averted"; p.resolvedEra = w.era; }
-      if (p.status === "open" && w.era - p.utteredEra > 8) { p.status = "averted"; p.resolvedEra = w.era; }
+      if (p.status === "open" && subject && !subject.alive) {
+        p.status = "averted"; p.resolvedEra = w.era;
+        ev(w, "prophecy", `${subject.name} is dead, and the words spoken over them die too. The prophecy is averted — or so the seers insist.`,
+          { importance: 1, motive: "faith" });
+      }
+      if (p.status === "open" && w.era - p.utteredEra > 8) {
+        p.status = "averted"; p.resolvedEra = w.era;
+        ev(w, "prophecy", `A generation has passed since it was spoken that ${p.text}. The old quietly stop telling that one.`,
+          { importance: 1, motive: "faith" });
+      }
     }
 
     /* the Chosen's saga: rally, war, fulfilment or ruin */
     if (w.chosen && !w.chosen.outcome) {
       const c = w.people[w.chosen.personId];
+      const target = houseOf(w, w.chosen.targetId);
       if (!c?.alive) {
         w.chosen.outcome = "broken";
         ev(w, "chosen", `${c?.name ?? "The chosen"}, the god's chosen, is dead — the charge unfulfilled, the prophecy broken.`, { importance: 3 });
-      } else if (ageOf(c, w.era) >= 16 && w.empireHouseId && w.empireHouseId !== c.houseId) {
-        const emp = houseOf(w, w.empireHouseId)!;
-        // the oppressed flock to the banner
-        for (const h of housesAlive(w)) {
-          if (h.id === c.houseId || h.id === emp.id) continue;
-          if (h.overlordId === emp.id && chance(rng, 0.45)) {
-            h.overlordId = null; h.loyalty = 1;
-            adjStanding(w, h.id, c.houseId, 0.4);
-            ev(w, "chosen", `House ${h.name} forsakes the ${emp.name} Empire and declares for ${c.name}.`, { importance: 2, houses: [h.id, emp.id], actors: [c.id] });
+      } else if (ageOf(c, w.era) >= 16 && target) {
+        const isEmpire = w.empireHouseId === target.id;
+        const castDown = target.fallenEra !== null
+          || target.overlordId !== null
+          || regionsOf(w, target.id).length <= Math.max(1, Math.ceil(w.chosen.baselineHoldings / 3));
+        if (castDown) {
+          w.chosen.outcome = "fulfilled";
+          ev(w, "chosen", `House ${target.name} is brought low, as the god charged. ${pName(w, c)} has done what was foretold.`,
+            { importance: 3, actors: [c.id], houses: [target.id], motive: "legacy" });
+          w.grace = clamp(w.grace + 0.3, 0, 1.5);
+        } else if (c.houseId !== target.id) {
+          // the oppressed flock to the banner
+          for (const h of housesAlive(w)) {
+            if (h.id === c.houseId || h.id === target.id) continue;
+            if (h.overlordId === target.id && chance(rng, 0.45)) {
+              h.overlordId = null; h.loyalty = 1;
+              adjStanding(w, h.id, c.houseId, 0.4);
+              ev(w, "chosen", `House ${h.name} forsakes ${isEmpire ? `the ${target.name} Empire` : `House ${target.name}`} and declares for ${c.name}.`,
+                { importance: 2, houses: [h.id, target.id], actors: [c.id] });
+            }
+          }
+          const alreadyAtWar = w.wars.some((x) => !x.over && x.attackerId === c.houseId && x.defenderId === target.id);
+          if (!alreadyAtWar && chance(rng, 0.7)) {
+            w.intents.wars.push({
+              houseId: c.houseId, targetId: target.id, byId: c.id,
+              aim: { kind: "coalition", claimantId: c.id, label: `to throw down ${isEmpire ? `the ${target.name} Empire` : `House ${target.name}`}, as the god foretold` },
+            });
           }
         }
-        const alreadyAtWar = w.wars.some((x) => !x.over && x.attackerId === c.houseId && x.defenderId === emp.id);
-        if (!alreadyAtWar && chance(rng, 0.7)) {
-          w.intents.wars.push({
-            houseId: c.houseId, targetId: emp.id, byId: c.id,
-            aim: { kind: "coalition", claimantId: c.id, label: `to throw down the ${emp.name} Empire, as the god foretold` },
-          });
-        }
-      } else if (!w.empireHouseId && ageOf(c, w.era) >= 16) {
-        // the empire is already gone — the charge stands fulfilled
+      } else if (ageOf(c, w.era) >= 16 && !target) {
         w.chosen.outcome = "fulfilled";
-        ev(w, "chosen", `The empire the god named is no more. ${pName(w, c)} has done — or outlived — what was foretold.`, { importance: 3, actors: [c.id] });
+        ev(w, "chosen", `The power the god named is no more. ${pName(w, c)} has done — or outlived — what was foretold.`, { importance: 3, actors: [c.id] });
       }
     }
 
     /* the age takes a mood — thresholds with hysteresis, not drift */
-    const battlesThisEra = w.chronicle.filter((e) => e.era === w.era && (e.kind === "war" || e.kind === "battle" || e.kind === "crusade")).length;
+    let battlesThisEra = 0;
+    for (let i = w.chronicle.length - 1; i >= 0; i--) {
+      const e = w.chronicle[i];
+      if (e.era !== w.era) break; // events are appended in era order
+      if (e.kind === "war" || e.kind === "battle" || e.kind === "crusade") battlesThisEra++;
+    }
     const avgProsp = w.regions.reduce((s, r) => s + r.prosperity, 0) / w.regions.length;
     const plagued = w.regions.filter((r) => r.plague > 0).length;
     const starving = w.regions.filter((r) => r.famine).length;

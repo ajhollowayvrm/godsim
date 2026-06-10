@@ -160,6 +160,7 @@ export interface Artifact {
   attune: string;               // hair/bloodline feature it "knows"
   power: "war" | "crown" | "sight" | "plenty" | "dread" | "grace";
   custody: { holderId: string; era: number; how: string }[];
+  cultName: string | null;      // the cult that worships it, once one forms
   forgedFrom?: string | null;   // artifact id it was reforged from
 }
 
@@ -286,7 +287,7 @@ export interface World {
   wars: War[];
   prophecies: Prophecy[];
   crown: { houseId: string | null; holderId: string | null; legitimacy: number; stateFaithId: string | null; since: number };
-  chosen: { personId: string; outcome: string | null } | null;
+  chosen: { personId: string; outcome: string | null; targetId: string | null; baselineHoldings: number } | null;
   empireHouseId: string | null;
   grace: number;
   mood: { label: string; since: number };

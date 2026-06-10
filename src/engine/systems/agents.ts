@@ -22,6 +22,7 @@ const has = (p: Person, t: string) => p.traits.includes(t as never);
 export const agents: System = {
   name: "agents",
   run(w, rng) {
+    w.intents.builds.length = 0; w.intents.endowments.length = 0; // bookkeeping channels, refreshed each era
     const m = monarch(w);
     const lostArtifacts = w.artifacts.filter((a) => a.state === "lost");
     const people = livingPeople(w).filter((p) => ageOf(p, w.era) >= 18 && !p.avatar);
@@ -59,15 +60,19 @@ export const agents: System = {
           const border = regionsOf(w, p.houseId).some((r) => r.neighbors.some((nid) => regionOf(w, nid)!.ownerId === t.id));
           if (!border && t.id !== house.overlordId) continue; // wars need a front
           const grudge = grudgeAgainst(w, p.houseId, t.id);
-          if (grudge > 0.45)
-            consider(t.id, { kind: "grudge", label: `to repay ${grudge.toFixed(1)} weight of grudge` }, dv(p, "vengeance") * grudge * 0.8 + (ratio - 1) * 0.2);
+          const vassalPenalty = t.overlordId ? 0.55 : 1; // little glory in beating another lord's dog
+          if (grudge > 0.45) {
+            const worst = houseOf(w, p.houseId)!.grudges.filter((g) => g.vs === t.id).sort((a, b) => b.weight - a.weight)[0];
+            consider(t.id, { kind: "grudge", label: worst ? `to repay ${worst.reason} in kind` : "to repay an old and heavy grudge" },
+              (dv(p, "vengeance") * grudge * 1.1 + (ratio - 1) * 0.2) * vassalPenalty);
+          }
           if (ratio > 1.25 && standing(w, p.houseId, t.id) < 0.2) {
             const prize = regionsOf(w, t.id).filter((r) => r.neighbors.some((nid) => regionOf(w, nid)!.ownerId === p.houseId))
               .sort((a, b) => b.prosperity - a.prosperity || (a.id < b.id ? -1 : 1))[0];
             if (prize) {
               const hungry = regionsOf(w, p.houseId).some((r) => r.famine);
               consider(t.id, { kind: "conquest", regionId: prize.id, label: `to take ${prize.name}` },
-                dv(p, "status") * 0.45 + dv(p, "wealth") * prize.prosperity * 0.5 + (hungry ? dv(p, "security") * 0.5 : 0) + (ratio - 1.25) * 0.25);
+                (dv(p, "status") * 0.45 + dv(p, "wealth") * prize.prosperity * 0.5 + (hungry ? dv(p, "security") * 0.5 : 0) + (ratio - 1.25) * 0.25) * vassalPenalty);
             }
           }
         }
@@ -96,6 +101,7 @@ export const agents: System = {
         if (p.woundVs && houseLord(w, p.woundVs)?.alive) { target = houseLord(w, p.woundVs); motive = "vengeance"; }
         const rival = w.rels.find((r) => r.from === p.id && r.rivalry > 0.5 && w.people[r.to]?.alive);
         if (!target && rival) { target = w.people[rival.to]; motive = "vengeance"; }
+        if (target && target.id === p.id) target = null; // no one plots their own murder
         if (target) {
           const t = target;
           const score = (motive === "vengeance" ? dv(p, "vengeance") : dv(p, "status")) * 0.75

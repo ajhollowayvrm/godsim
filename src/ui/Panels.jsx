@@ -72,7 +72,7 @@ export function PersonPanel({ pid, v, souls, engine, hand, act, onSelectPerson }
   const dead = !detail.alive;
   const drives = Object.entries(detail.drives || {}).sort((a, b) => b[1] - a[1]);
   const singles = souls.filter((x) => x.id !== pid && !x.spouse && x.age >= 18 && x.age <= 55 && x.houseId !== s?.houseId).slice(0, 14);
-  const artifacts = v.artifacts.filter((a) => a.state !== "destroyed" && (a.state !== "held" || a.holderId === pid));
+  const artifacts = v.artifacts.filter((a) => a.state !== "destroyed" && a.holderId !== pid);
   return (
     <div className="card inspector">
       <h2>{detail.name} {dead && <span className="of">† {detail.deathCause}</span>}</h2>
@@ -141,7 +141,7 @@ export function PersonPanel({ pid, v, souls, engine, hand, act, onSelectPerson }
               render={(c) => (<><span className="sname">{c.name}</span><span className="smeta">{c.house} · {c.age}y</span></>)} />
           )}
           {picking === "bestow" && (
-            <PickList items={artifacts.filter((a) => a.holderId !== pid)} empty="no relic remains to give"
+            <PickList items={artifacts} empty="no relic remains to give"
               onPick={(a) => { setPicking(null); act((e) => e.bestowArtifact(a.id, pid)); }}
               render={(a) => (<><span className="sname">{a.name}</span><span className="smeta">{a.state}{a.holder ? ` · borne by ${a.holder}` : ""}</span></>)} />
           )}
@@ -241,7 +241,7 @@ export function ArtifactPanel({ artifactId, v, souls, hand, act }) {
   const [picking, setPicking] = React.useState(false);
   const a = v.artifacts.find((x) => x.id === artifactId);
   if (!a) return null;
-  const worthies = souls.slice(0, 14);
+  const worthies = souls.filter((p) => p.id !== a?.holderId).slice(0, 14);
   return (
     <div className="card inspector">
       <h2>{a.name}</h2>

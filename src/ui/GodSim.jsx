@@ -168,15 +168,26 @@ export default function GodSim() {
   const autoRef = React.useRef(false);
   const busyRef = React.useRef(false);
   const aiRef = React.useRef(false);
+  const bootRef = React.useRef({ seed: 2026, opts: { adversary: "none", vow: "none" } }); // the authoritative boot params — rewind replays against THESE
+  const genRef = React.useRef(0);      // timeline generation: bump on begin/rewind so stale narrations are discarded
+  const loopRef = React.useRef(0);     // auto-run loop token: bump to cancel a running loop
+  const [stepping, setStepping] = React.useState(false);
   React.useEffect(() => { aiRef.current = useAI; }, [useAI]);
 
   const sync = () => setV(engineRef.current.view());
   const begin = (s, o) => {
+    bootRef.current = { seed: s, opts: { adversary: o.adversary, vow: o.vow } };
+    genRef.current++;
     engineRef.current = boot(s, { adversary: o.adversary, vow: o.vow });
     setSel(null); setHand(false); setAuto(false); setNarr({}); setStats({}); setSetup(false); setTab("realm");
     sync();
   };
-  React.useEffect(() => { engineRef.current = boot(seed, {}); sync(); /* eslint-disable-next-line */ }, []);
+  React.useEffect(() => {
+    bootRef.current = { seed, opts: { adversary: "none", vow: "none" } };
+    engineRef.current = boot(seed, {});
+    sync();
+    /* eslint-disable-next-line */
+  }, []);
 
   const snapshot = (vv) => ({
     ...vv.stats,
@@ -192,33 +203,36 @@ export default function GodSim() {
 
   async function step() {
     if (busyRef.current) return;
-    if (engineRef.current.view().era >= CAP) { setAuto(false); return; }
-    busyRef.current = true;
+    busyRef.current = true; setStepping(true);
     try {
-      const before = engineRef.current.view().events.length;
+      const v0 = engineRef.current.view();
+      if (v0.era >= CAP) { setAuto(false); return; }
+      const before = v0.events.length;
       engineRef.current.advance();
       const vv = engineRef.current.view();
-      sync();
+      setV(vv);
       setStats((prev) => ({ ...prev, [vv.era]: snapshot(vv) }));
       if (aiRef.current) {
         const era = vv.era;
+        const gen = genRef.current; // discard narration if the timeline changed underneath it
         const lines = vv.events.slice(before).filter((e) => e.importance >= 2).map((e) => e.text);
         if (lines.length) {
           setNarr((n) => ({ ...n, [era]: { status: "loading" } }));
           try {
             const prose = await narrate(era, lines, ctxOf(vv));
             if (!prose) throw new Error("no key");
-            setNarr((n) => ({ ...n, [era]: { status: "done", prose } }));
-          } catch { setNarr((n) => ({ ...n, [era]: { status: "error" } })); }
+            if (genRef.current === gen) setNarr((n) => ({ ...n, [era]: { status: "done", prose } }));
+          } catch { if (genRef.current === gen) setNarr((n) => ({ ...n, [era]: { status: "error" } })); }
         }
       }
-    } finally { busyRef.current = false; }
+    } finally { busyRef.current = false; setStepping(false); }
   }
 
   React.useEffect(() => {
     autoRef.current = auto;
+    const loopId = ++loopRef.current; // any previous loop sees a stale token and exits
     if (auto) (async () => {
-      while (autoRef.current) {
+      while (autoRef.current && loopRef.current === loopId) {
         if (engineRef.current.view().era >= CAP) { setAuto(false); break; }
         await step();
         await new Promise((r) => setTimeout(r, aiRef.current ? 400 : 900));
@@ -228,13 +242,17 @@ export default function GodSim() {
   }, [auto]);
   React.useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [v && v.events.length, narr]);
 
+  const souls = React.useMemo(() => (v ? engineRef.current.listLiving() : []), [v]);
+
   if (!v) return null;
-  const souls = engineRef.current.listLiving();
 
   const act = (fn) => { fn(engineRef.current); sync(); };
   const rewind = (target) => {
+    // replay against the engine's OWN boot params — never the (possibly edited) setup form
+    const { seed: bootSeed, opts: bootOpts } = bootRef.current;
     const journal = engineRef.current.journal();
-    engineRef.current = rebuild(seed, { adversary: opts.adversary, vow: opts.vow }, journal, target);
+    genRef.current++;
+    engineRef.current = rebuild(bootSeed, bootOpts, journal, target);
     setNarr((n) => Object.fromEntries(Object.entries(n).filter(([e]) => +e <= target)));
     setStats((s) => Object.fromEntries(Object.entries(s).filter(([e]) => +e <= target)));
     setSel(null); sync();
@@ -295,7 +313,7 @@ export default function GodSim() {
           </div>
         </div>
         <div className="controls">
-          <button className="btn gold" onClick={() => step()} disabled={v.era >= CAP || auto}>{v.era >= CAP ? "The age has closed" : "Advance the Age ▸"}</button>
+          <button className="btn gold" onClick={() => step()} disabled={v.era >= CAP || auto || stepping}>{v.era >= CAP ? "The age has closed" : stepping ? "The quill moves…" : "Advance the Age ▸"}</button>
           <button className={"btn " + (auto ? "on" : "")} onClick={() => setAuto((a) => !a)} disabled={v.era >= CAP}>{auto ? "❚❚ Pause" : "▷ Auto"}</button>
           <button className={"btn hand " + (hand ? "on" : "")} onClick={() => setHand((h) => !h)}>✶ Divine Hand · {hand ? "open" : "stayed"}</button>
           <button className={"btn " + (useAI ? "on" : "")} onClick={() => setUseAI((x) => !x)} title="AI chronicler">✦ Narrator · {useAI ? "on" : "off"}</button>
@@ -348,8 +366,8 @@ export default function GodSim() {
               </>)}
               {v.prophecies.filter((p) => p.status === "open").length > 0 && (<>
                 <div className="lbl">Words hanging over the world</div>
-                {v.prophecies.filter((p) => p.status === "open").map((p, i) => (
-                  <div key={i} className="bondrow">“{p.text}” <span className="of">({p.origin}, era {p.era}{p.subject ? ` — eyes on ${p.subject}` : ""})</span></div>
+                {v.prophecies.filter((p) => p.status === "open").map((p) => (
+                  <div key={`${p.era}:${p.text}`} className="bondrow">“{p.text}” <span className="of">({p.origin}, era {p.era}{p.subject ? ` — eyes on ${p.subject}` : ""})</span></div>
                 ))}
               </>)}
               {v.chosen && (
@@ -377,8 +395,8 @@ export default function GodSim() {
             )}
 
             {tab === "faiths" && (<>
-              {v.faiths.length ? v.faiths.map((f, i) => (
-                <div key={i} className="faith" onClick={() => setSel({ type: "faith", id: f.name })}>
+              {v.faiths.length ? v.faiths.map((f) => (
+                <div key={f.id} className="faith" onClick={() => setSel({ type: "faith", id: f.name })}>
                   <div className="fn"><span className="chip" style={{ background: faithColor(f.name, v.faiths) }} /> {f.name}</div>
                   <div className="fmeta">venerates {focusGlyph[f.focus] ?? f.focus} · {f.posture} · {f.regions} regions · creed: {f.creed}{f.mem < 0.2 ? " · the god forgotten" : ""}</div>
                   <Bar v={f.vitality} tone="gold" />

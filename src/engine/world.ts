@@ -86,7 +86,10 @@ export const faithById = (w: World, id: string | null) => w.faiths.find((f) => f
 export const houseAlive = (w: World, hid: string) => !!houseOf(w, hid) && houseLiving(w, hid).length > 0;
 export const houseLord = (w: World, hid: string) => w.people[w.offices["lord_" + hid]?.holderId ?? ""] ?? null;
 export const isLord = (w: World, p: Person) => w.offices["lord_" + p.houseId]?.holderId === p.id;
-export const monarch = (w: World) => (w.crown.holderId ? w.people[w.crown.holderId] ?? null : null);
+export const monarch = (w: World) => {
+  const p = w.crown.holderId ? w.people[w.crown.holderId] ?? null : null;
+  return p?.alive ? p : null; // a corpse does not reign — succession resolves next politics phase
+};
 export const pName = (w: World, p: Person) => `${p.name} of House ${houseOf(w, p.houseId)?.name ?? "no house"}`;
 export const vassalsOf = (w: World, hid: string) => w.houses.filter((h) => h.overlordId === hid && houseAlive(w, h.id));
 export const housesAlive = (w: World) => w.houses.filter((h) => houseAlive(w, h.id));
@@ -236,10 +239,13 @@ export function newPerson(
   const ancestors = parents.length
     ? Object.values(w.people).filter((p) => p.houseId === houseId && !p.alive && (p.renownBase ?? 0) > 0.05)
     : [];
-  if (ancestors.length && chance(rng, 0.4)) {
+  if (ancestors.length && chance(rng, 0.3)) {
     const hon = pick(rng, ancestors); baseName = hon.baseName || hon.name; namedAfter = hon.id;
   } else baseName = givenName(rng, culture);
-  const ord = Object.values(w.people).filter((p) => p.houseId === houseId && (p.baseName || p.name) === baseName).length + 1;
+  const countName = (n: string) => Object.values(w.people).filter((p) => p.houseId === houseId && (p.baseName || p.name) === n).length;
+  // past the fifth of a name, even the heralds lose track — pick a fresh one
+  if (countName(baseName) >= 5) { baseName = givenName(rng, culture); namedAfter = null; }
+  const ord = countName(baseName) + 1;
 
   const avg = (k: "prowess" | "guile" | "acumen" | "zeal", def: number) =>
     parentPeople.length ? parentPeople.reduce((s, p) => s + p[k], 0) / parentPeople.length : def;

@@ -203,7 +203,7 @@ export function generateWorld(w: World, rng: RNG): void {
       will: clamp(0.3 + rng() * 0.6, 0, 1),
       wants: pick(rng, ARTIFACT_WANTS),
       attune: pick(rng, w.houses.map((h) => h.hair)),
-      power: powers[i], custody: [],
+      power: powers[i], custody: [], cultName: null,
     };
     w.artifacts.push(a);
   }

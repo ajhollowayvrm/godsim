@@ -9,10 +9,12 @@ const TERRAIN_FILL = {
 };
 const TERRAIN_GLYPH = { mountain: "▲", forest: "♣", marsh: "≈", desert: "·", coast: "~", hill: "◠", steppe: "—", plain: "" };
 
-const FAITH_HUES = [42, 0, 200, 280, 130, 330, 60, 170];
+/** Stable hue from the faith's NAME — colors never shift when another faith dissolves. */
 export const faithColor = (name, faiths) => {
-  const i = Math.max(0, faiths.findIndex((f) => f.name === name));
-  return `hsl(${FAITH_HUES[i % FAITH_HUES.length]} 45% 42%)`;
+  if (!name || !faiths.some((f) => f.name === name)) return "#262118"; // the faith is gone; the land remembers nothing
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return `hsl(${((h % 360) + 360) % 360} 45% 42%)`;
 };
 const CULTURE_HUE = { Highland: 210, Riverland: 130, Sunland: 40, Marshfolk: 290 };
 const cultureColor = (key) => {
@@ -39,6 +41,7 @@ export default function MapView({ regions, faiths, overlay, selectedId, onSelect
   const height = Math.sqrt(3) * SIZE * (maxRow + 1.6);
 
   const fillOf = (r) => {
+    if (overlay === "realms") return r.ownerColor ?? "#221d13"; // banners, not biomes
     if (overlay === "faith") return r.faith ? faithColor(r.faith, faiths) : "#262118";
     if (overlay === "prosperity") {
       const p = r.prosperity;
@@ -53,7 +56,7 @@ export default function MapView({ regions, faiths, overlay, selectedId, onSelect
       {regions.map((r) => {
         const [cx, cy] = center(r.col, r.row);
         const sel = r.id === selectedId;
-        const stroke = sel ? "#e6c878" : (overlay === "realms" || overlay === "terrain") && r.ownerColor ? r.ownerColor : "#1c170e";
+        const stroke = sel ? "#e6c878" : overlay === "terrain" && r.ownerColor ? r.ownerColor : "#1c170e";
         return (
           <g key={r.id} onClick={() => onSelect(r.id)} style={{ cursor: "pointer" }}>
             <polygon
@@ -61,7 +64,7 @@ export default function MapView({ regions, faiths, overlay, selectedId, onSelect
               fill={fillOf(r)}
               opacity={r.devastation > 0.3 ? 0.75 : 1}
               stroke={stroke}
-              strokeWidth={sel ? 3 : (overlay === "realms" || overlay === "terrain") && r.ownerColor ? 2.2 : 1}
+              strokeWidth={sel ? 3 : overlay === "terrain" && r.ownerColor ? 2.2 : 1}
             />
             {r.devastation > 0.3 && <polygon points={hexPoints(cx, cy)} fill="#000" opacity={r.devastation * 0.4} pointerEvents="none" />}
             <text x={cx} y={cy - 7} textAnchor="middle" fontSize="9" fill="#cdbd97" opacity="0.55" pointerEvents="none">

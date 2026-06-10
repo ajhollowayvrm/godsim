@@ -9,7 +9,7 @@
  */
 import { mulberry32 } from "./rng";
 import type { BootOptions, Engine, System, World } from "./types";
-import { bumpPhase, clearIntents, pruneRels } from "./world";
+import { bumpPhase, pruneRels } from "./world";
 import { ADVERSARY_NAMES } from "./names";
 import { generateWorld } from "./systems/worldgen";
 import { economy } from "./systems/economy";
@@ -53,7 +53,7 @@ export function boot(seed: number, options: BootOptions = {}): Engine {
       marks: [], actsThisEra: 0, lastActEra: -1, humbled: false,
     },
     adversary: {
-      name: ADVERSARY_NAMES[seed % ADVERSARY_NAMES.length],
+      name: ADVERSARY_NAMES[(seed >>> 0) % ADVERSARY_NAMES.length],
       kind: options.adversary ?? "none",
       championId: null, cultName: null, power: 0, defeated: false,
     },
@@ -80,7 +80,10 @@ export function boot(seed: number, options: BootOptions = {}): Engine {
   function advance(): void {
     w.era++; w.year = 1000 + w.era * 25;
     w.deity.actsThisEra = 0;
-    clearIntents(w);
+    // NOTE: intents are NOT cleared here. Each consumer system clears its own
+    // channel after resolving it, so intents pushed AFTER a consumer's phase
+    // (crusades from faith, the Chosen's war from memory, divine inciteWar
+    // between eras) survive to be resolved in the next era's phase.
     for (const system of PIPELINE) { bumpPhase(w); system.run(w, rng); }
     bumpPhase(w);
     pruneRels(w);

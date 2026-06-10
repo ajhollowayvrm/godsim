@@ -132,7 +132,7 @@ export function buildView(w: World): EngineView {
       activeWars: w.wars.filter((x) => !x.over).length,
       plaguedRegions: w.regions.filter((r) => r.plague > 0).length,
       famineRegions: w.regions.filter((r) => r.famine).length,
-      techsKnown: w.cultures.reduce((s, c) => s + Object.values(c.tech).filter(Boolean).length, 0),
+      techsKnown: new Set(w.cultures.flatMap((c) => Object.keys(c.tech).filter((k) => c.tech[k]))).size,
       tracked: livingPeople(w).length,
     },
   };

@@ -20,6 +20,9 @@ export const TECHS: { key: string; name: string; line: string }[] = [
 
 const DRIFT_DRIVES: Drive[] = ["security", "status", "wealth", "faith", "love", "vengeance", "legacy", "knowledge", "freedom"];
 
+/** "the Riverland folk" but "the Marshfolk" — never "folk folk" */
+const folkOf = (key: string) => (key.toLowerCase().endsWith("folk") ? `the ${key}` : `the ${key} folk`);
+
 export const culture: System = {
   name: "culture",
   run(w, rng) {
@@ -67,7 +70,8 @@ export const culture: System = {
       if (chance(rng, p)) {
         const t = unknown[0]; // discoveries come in the order a people can reach them
         c.tech[t.key] = 1;
-        ev(w, "innovation", `The ${c.key} folk master ${t.name}: ${t.line}.`, { importance: 2, motive: "knowledge" });
+        const folk = folkOf(c.key);
+        ev(w, "innovation", `${folk[0].toUpperCase() + folk.slice(1)} master ${t.name}: ${t.line}.`, { importance: 2, motive: "knowledge" });
       }
     }
 
@@ -81,7 +85,7 @@ export const culture: System = {
         for (const t of TECHS) {
           if (a.tech[t.key] && !b.tech[t.key] && chance(rng, 0.04)) {
             b.tech[t.key] = 1;
-            ev(w, "innovation", `${t.name[0].toUpperCase() + t.name.slice(1)} crosses the border into the ${b.key} lands by way of ${n.name}.`,
+            ev(w, "innovation", `Knowledge of ${t.name} crosses the border into the ${b.key} lands by way of ${n.name}.`,
               { importance: 1, regionId: n.id, motive: "knowledge" });
           }
         }
@@ -118,7 +122,7 @@ export const culture: System = {
         if (!w.cultures.some((x) => x.key === variant.key)) {
           w.cultures.push(variant);
           for (const r of half) r.cultureKey = variant.key;
-          ev(w, "divergence", `Sundered by war and distance, half the ${c.key} folk turn inward and become the ${variant.key} — one tongue, two peoples.`,
+          ev(w, "divergence", `Sundered by war and distance, half of ${folkOf(c.key)} turn inward and become ${folkOf(variant.key)} — one tongue, two peoples.`,
             { importance: 3, motive: "freedom" });
         }
       }
