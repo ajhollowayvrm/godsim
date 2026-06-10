@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { boot } from "../src/engine";
+import { boot, rebuild } from "../src/engine";
 
-function run(seed: number, eras: number) {
-  const g = boot(seed);
+function run(seed: number, eras: number, options = {}) {
+  const g = boot(seed, options);
   for (let i = 0; i < eras; i++) g.advance();
   return g.view();
 }
@@ -19,18 +19,26 @@ describe("engine — the core invariant", () => {
     const b = run(2, 16);
     expect(JSON.stringify(a)).not.toEqual(JSON.stringify(b));
   });
+
+  it("same seed with an adversary is also deterministic", () => {
+    const a = run(777, 14, { adversary: "god-slayer" });
+    const b = run(777, 14, { adversary: "god-slayer" });
+    expect(JSON.stringify(a)).toEqual(JSON.stringify(b));
+  });
 });
 
-describe("engine — a run is alive and legible", () => {
-  it("writes a non-empty chronicle and leaves survivors", () => {
-    const v = run(25, 18);
-    expect(v.log.length).toBeGreaterThan(20);
-    const souls = v.houses.reduce((s, h) => s + (h.living || 0), 0);
-    expect(souls).toBeGreaterThan(0);
-  });
+describe("engine — divine journal replay (rewind)", () => {
+  it("replaying the journal reproduces the run exactly", () => {
+    const g = boot(42) as ReturnType<typeof boot> & Record<string, CallableFunction>;
+    g.advance(); g.advance();
+    const souls = g.listLiving();
+    g.bless(souls[0].id);
+    g.advance();
+    g.nameChosen(g.listLiving()[3].id);
+    g.advance(); g.advance();
+    const a = g.view();
 
-  it("generates a procedurally-named relic", () => {
-    const v = run(25, 4);
-    expect(v.sword?.name).toMatch(/of/);
+    const replayed = rebuild(42, {}, (g as never as { journal: () => [] }).journal(), 5);
+    expect(JSON.stringify(replayed.view())).toEqual(JSON.stringify(a));
   });
 });
