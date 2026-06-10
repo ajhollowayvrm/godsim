@@ -14,8 +14,7 @@
  */
 import { CHRONICLER_SYSTEM } from "./prompt";
 
-// TODO(rebuild): confirm the current model id against https://docs.claude.com/en/api
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-opus-4-8";
 const KEY = "godsim.anthropicKey";
 
 export function getKey(): string | null {

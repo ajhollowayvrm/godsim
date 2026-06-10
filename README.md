@@ -1,14 +1,43 @@
 # godsim
 
-A deterministic, seeded **god-simulation** in the spirit of WorldBox. Dynasties,
-religions, wars, and legends unfold on their own across centuries; you watch as a
-deity and occasionally intervene. Same seed → same history, every time. An optional
-AI narrator turns each era's events into chronicle prose — but the engine, never the
-model, decides what happens.
+A deterministic, seeded **god-simulation** in the spirit of WorldBox. A living
+world — agents with drives and wounds, a hex-map economy, dynasties, emergent
+religions, relic sagas, prophecies, plagues, golden ages and collapses — unfolds
+on its own across centuries; you watch as a deity and intervene any way you like.
+Same seed → same history, every time, **including your own divine acts** (which is
+also how time-rewind works). An optional AI narrator turns each era's events into
+chronicle prose — but the engine, never the model, decides what happens.
 
-> Building the deep version with **Claude Code**? Start with **[`CLAUDE.md`](./CLAUDE.md)** —
-> it's the operational brief (invariants, target architecture, workflow). The fuller
-> design rationale is in [`docs/REBUILD_PROMPT.md`](./docs/REBUILD_PROMPT.md).
+**Play it:** https://ajhollowayvrm.github.io/godsim/
+
+## What's in the box
+
+- **A real map.** ~40 hex regions with terrain, population, prosperity,
+  devastation, culture, faith and sacred sites. Wars have fronts, famines drive
+  migration, plagues spread along adjacency, tech diffuses across borders.
+- **Agents with interiority.** Every tracked noble has drives (status, vengeance,
+  faith, love, legacy…), traits, a formative wound and a current desire — and each
+  era picks the action that best serves them: scheme, marry, build, declare war,
+  quest for a lost relic, found a religion, reconcile, betray. Every major event
+  traces back to *who wanted what*.
+- **Cross-system feedback.** Economy ↔ war ↔ legitimacy ↔ faith ↔ culture ↔
+  demography, with thresholds: golden ages, dark ages, ages of blood and faith
+  emerge from the loops, not from scripts.
+- **Memory.** Inherited grudges (written down, they last longer), prophecies that
+  bend behavior (paranoid kings hunt the foretold child — and make their own
+  enemies), legacies, namesakes, and relics whose legends outlive their bearers.
+- **A full divine hand.** Bless, smite, curse, whisper new wants into a soul,
+  ordain marriages, bless or blight lands, send plague or bounty, hallow ground,
+  incite wars, impose peace, favor houses, kindle faiths, spark schisms, forge
+  and bestow relics, speak prophecies, name a Chosen.
+- **The Vow.** A self-imposed, breakable law (no blood, an even hand, one miracle
+  per age, silence, mercy). Breaking it never weakens you — it only changes what
+  the world's faiths believe about their god.
+- **Incarnation.** Descend into a mortal body — unkillable, but humble-able.
+- **Adversaries.** Start a run against a rival deity (curses, cults, champions,
+  temptations) or a mortal god-slayer climbing toward heaven relic by relic.
+- **Time itself.** Deterministic journal replay lets you unwind the years to any
+  earlier era — your divine acts included — and play forward again.
 
 ## Quickstart
 
@@ -20,10 +49,13 @@ npm run dev            # http://localhost:5173
 Other commands:
 
 ```bash
-npm run sim -- 25 18   # headless: run seed 25 for 18 eras, print the chronicle
-npm test               # determinism + smoke tests
-npm run build          # production build → dist/
-npm run preview        # serve the production build
+npm run sim -- 25 18             # headless: seed 25, 18 eras, print the chronicle
+npm run sim -- 25 30 god-slayer  # ...with an adversary (none|rival-deity|god-slayer)
+npm test                         # determinism + replay + systems tests
+npm run typecheck                # tsc --noEmit
+npm run build                    # production build → dist/
+npm run preview                  # serve the production build
+node scripts/ui-smoke.mjs        # Playwright UI smoke test (needs `npm run preview`)
 ```
 
 ## Deploy to GitHub Pages
@@ -50,16 +82,20 @@ proxy in front (see `CLAUDE.md` → Narrator).
 ```
 src/
   engine/
-    index.ts        # public surface: boot(seed) -> Engine; view() -> EngineView
-    types.ts        # core + target data model
+    index.ts        # public surface: boot(seed, options?) -> Engine; rebuild() for rewind
+    types.ts        # the World model + stable EngineView contract
     rng.ts          # deterministic PRNG (the core invariant)
-    legacy.mjs      # the current working engine (the rebuild replaces this)
-    systems/        # deterministic phases for the deep rebuild (see its README)
+    names.ts        # culture-driven naming: people, houses, regions, faiths, relics
+    world.ts        # shared helpers: events, relationships, grudges, might, LOD
+    divine.ts       # the god's powers, the Vow, Incarnation, the journal
+    view.ts         # World -> EngineView (pure)
+    systems/        # the deterministic pipeline, one file per phase
   narrator/         # optional AI voice (engine owns truth, AI owns voice)
-  ui/GodSim.jsx     # the illuminated-chronicle interface
-tests/              # determinism + smoke tests
+  ui/               # the illuminated-chronicle interface: map, inspectors, chronicle
+tests/              # determinism + replay + systems tests
 scripts/run.mjs     # headless runner for the verification loop
-docs/               # rebuild prompt + data-model reference
+docs/               # original rebuild prompt + data-model reference
+ARCHITECTURE.md     # how the deep rebuild fits together
 ```
 
 ## License

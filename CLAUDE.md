@@ -13,18 +13,18 @@ player is a deity who watches and occasionally intervenes — the world runs wit
 without them. North star: **as organic as possible**; history *emerges*, and the
 same seed always replays the same history.
 
-## Your mission
+## Status: the deep rebuild is DONE
 
-The current simulation works but feels **barebones and undynamic** — its phases
-fire as independent probability rolls rather than as the consequences of people
-pursuing goals. Make it **deep and dynamic**.
+The agent-driven rebuild described below is implemented (see `ARCHITECTURE.md`).
+`src/engine/legacy.mjs` remains in-tree as the historical baseline but is no
+longer imported. When extending the sim, keep honoring the core principle:
 
-**The core principle:** dynamism comes from **agents with interiority pursuing goals
-against material and social constraints, producing causal chains and cross-system
-feedback.** Every major event — a war, a schism, a murder, a coronation, a
-migration, a golden age, a collapse — should be traceable to *who wanted what, what
-they had to work with, and who stood in their way.* Depth = more legible causal
-layers, not more random tables.
+**Dynamism comes from agents with interiority pursuing goals against material and
+social constraints, producing causal chains and cross-system feedback.** Every
+major event — a war, a schism, a murder, a coronation, a migration, a golden age,
+a collapse — should be traceable to *who wanted what, what they had to work with,
+and who stood in their way.* Depth = more legible causal layers, not more random
+tables.
 
 ## Hard invariants — do NOT break these
 
@@ -54,71 +54,47 @@ layers, not more random tables.
    drillable, not dumped. Keep the illuminated-chronicle aesthetic and the per-era
    facts/stats ledger in the UI.
 
-## Current state (the baseline you're inheriting)
+## Current architecture (implemented)
 
-- `src/engine/legacy.mjs` — the **working** deterministic engine. One seeded PRNG;
-  per-era phases roughly: demography → diplomacy → artifacts → politics → war →
-  faith → crown → intrigue → divine hand → chosen. Procedural: ~12 houses across 4
-  cultures, generated names, one uniquely-named relic per realm. It already does
-  emergent religions (schism/crusade/conversion/merger), succession/usurpation,
-  conquest/vassalage/rebellion/empire, and intrigue (assassination/coups) — but all
-  shallowly. **This is what you will progressively replace.**
-- `src/engine/index.ts` — the public surface; today it re-exports `legacy.mjs`.
-- `src/ui/GodSim.jsx` — the chronicle UI (kept as JS; not type-checked by the build).
-- `src/narrator/` — the optional AI voice.
-
-## Target architecture
-
-Replace `legacy.mjs` with a composed **tick pipeline** in `src/engine/index.ts`:
-`boot(seed)` builds a `World` (`types.ts`) and seeds the RNG; `advance()` runs the
-ordered list of `System`s (`src/engine/systems/*`), each a pure
+`boot(seed, options?)` in `src/engine/index.ts` builds a `World` (`types.ts`),
+seeds the RNG, and composes the ordered pipeline of `System`s — each a pure
 `run(world, rng)` that mutates the world and appends `ChronicleEvent`s **with a
-causal trace** (`actors`, `motive`, `causedBy`). `view()` derives the serializable
-`EngineView` from the `World`.
+causal trace** (`actors`, `motive`, `causedBy`, `importance`). `view()` derives
+the serializable `EngineView`. Per-era order:
 
-Suggested build order (also in `src/engine/systems/README.md`):
+1. `economy` — regional output, treasuries, famine/plague/bounty shocks.
+2. `demography` — masses grow/move along the map; the tracked cast is born/dies.
+3. `agents` — **the heart**: every tracked adult scores candidate actions against
+   their drives/wound/traits and emits intents (wars, marriages, schemes, quests,
+   conversions, prophets) that later systems resolve the same era.
+4. `politics` — marriages, succession by cultural law, plots, factions, the Crown,
+   fallen houses replaced by rising stewards.
+5. `war` — aims + fronts + truces; conquest/vassalage/independence/throne/holy/
+   coalition resolutions; commanders die; grudges form.
+6. `faith` — spatial spread, doctrine drift, schism, crusades, state sanction,
+   creeds about the god that react to what the player actually does.
+7. `artifacts` — custody, wills that bend bearers, quests, cults, reforging.
+8. `culture` — value drift/borrowing/divergence; tech emergence + diffusion.
+9. `memory` — grudge decay (writing slows it), prophecies that bend behavior,
+   the Chosen's saga, era moods with hysteresis.
+10. `adversary` — optional rival deity / god-slayer sagas.
 
-1. **world** — procedural generation: cultures, **regions (a map with adjacency)**,
-   houses, founding families, artifacts.
-2. **agents** — the decision loop: each tracked person evaluates available actions
-   (scheme, marry, build, war, convert, flee, betray, endow) and picks the one best
-   serving their `drives`/`wound`/`traits` given their situation. *This is the heart
-   of dynamism.* Decisions are deterministic functions of state + traits + RNG.
-   Realize the `Person` interiority and `Relationship` graph already typed in
-   `types.ts` (they exist in the model but the legacy engine ignores them).
-3. **economy** — regional output of food/wealth/manpower; prosperity & scarcity
-   drive ambition, migration, revolt; famine/plague as shocks. Wars cost and are
-   fought over something.
-4. **demography** — births/deaths; migration along the region graph.
-5. **politics** — succession, legitimacy, marriages → alliances, factions.
-6. **war** — war aims from economy + grudges; campaigns over geography
-   (adjacency/fronts); conquest, vassalage, rebellion.
-7. **faith** — emergent religions coupled to material conditions, geography (sacred
-   sites), and culture; doctrine mutation; reform vs orthodoxy; spatial spread.
-8. **artifacts** — multiple relics with distinct powers/wills/wants; custody, cults,
-   lost/reforged; compounding, intersecting legends.
-9. **culture** — value drift, borrowing, divergence; tech emergence + diffusion
-   along trade/conquest, reshaping what's possible.
-10. **memory** — inherited grudges, prophecies that constrain later choices,
-    legacies shaping descendants' standing → recurring motifs that fall out of
-    mechanics, not authoring.
+`divine.ts` holds the player-god API (~25 powers + Vow + Incarnation), journaling
+every act `{era, op, args}` — `rebuild(seed, options, journal, era)` deterministically
+replays it, which is the save/rewind mechanism. `world.ts` holds shared helpers and
+the perf-critical caches (living list, region map, per-phase might cache) — any new
+death path MUST go through `kill()`/`departWorld()` so the living cache stays true.
 
-**Feedback is the goal:** wire systems so they push on each other (economy ↔ war ↔
-legitimacy ↔ faith ↔ culture ↔ demography) with thresholds/tipping points — golden
-ages, dark ages, collapses, recoveries arising from the loops themselves.
+## Workflow for changes
 
-## Workflow
-
-1. **First, write a short architecture plan** (an `ARCHITECTURE.md` or a PR
-   description): the revised `World`/`Person` model, the agent decision loop, the
-   phase order and the specific feedback couplings, the LOD strategy, and how each
-   system stays deterministic. Flag where emergence might run away or stall. Don't
-   write the full implementation before the plan.
-2. **Implement incrementally**, one system at a time. After each, **verify headless**
-   with `npm run sim -- <seed>` and read the causal chronicle; keep the determinism
-   test green; add a focused test per system.
-3. Integrate into the UI only once a system is verified headless. Update the per-era
-   ledger to surface the new state.
+1. Keep the determinism + replay tests green at all times; add a focused test per
+   new system or power.
+2. **Verify headless first** with `npm run sim -- <seed> <eras> [adversary]` and
+   read the causal chronicle before touching the UI.
+3. The UI (`src/ui/`) reads only `EngineView` + `listLiving()` + `inspect(id)` —
+   extend the view, don't reach into engine internals.
+4. `node scripts/ui-smoke.mjs` (with `npm run preview` running) drives the real UI
+   through setup → eras → inspectors → divine acts → rewind via Playwright.
 
 ## Commands
 
